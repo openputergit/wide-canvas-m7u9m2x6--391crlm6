@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Email System for Visually Impaired</title>
+    <script src="https://accounts.google.com/gsi/client" async></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .hidden { display: none; }
+        .active-section { display: block; }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        .listening {
+            animation: pulse 1.5s infinite;
+            background-color: #EF4444;
+        }
+        .voice-focus {
+            border: 2px solid #3B82F6;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #6366F1, #A855F7, #EC4899);
+        }
+        #visualFeedback {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            margin: 20px auto;
+            transition: all 0.3s ease;
+        }
+        .listening-feedback {
+            background: radial-gradient(circle, #ff0000, #ff6b6b);
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Status Bar -->
+        <div id="status-bar" class="fixed top-0 left-0 right-0 bg-black bg-opacity-75 text-white p-4 text-center z-50 hidden">
+            <p id="status-message"></p>
+        </div>
+
+        <!-- Visual Feedback -->
+        <div id="visualFeedback" class="transition-all duration-300"></div>
+
+        <!-- Login Section -->
+        <section id="login-section" class="active-section">
+            <div class="max-w-md mx-auto bg-white bg-opacity-90 rounded-2xl shadow-2xl p-8">
+                <h1 class="text-3xl font-bold text-center mb-8 text-purple-800">Voice Email System</h1>
+                <div class="space-y-4">
+                    <div class="voice-input-field">
+                        <label class="block text-sm font-medium text-gray-700">Email Address</label>
+                        <input type="email" id="emailInput" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" readonly>
+                    </div>
+                    <div class="voice-input-field">
+                        <label class="block text-sm font-medium text-gray-700">Password</label>
+                        <input type="password" id="passwordInput" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" readonly>
+                    </div>
+                </div>
+                <div class="flex justify-center mt-6">
+                    <button id="startButton" class="gradient-bg text-white px-8 py-4 rounded-full hover:opacity-90 transition-all">
+                        <i class="bi bi-mic-fill mr-2"></i>Start Voice Assistant
+                    </button>
+                </div>
+                <div id="loginStatus" class="mt-4 text-center text-gray-700"></div>
+            </div>
+        </section>
+
+        <!-- Main Interface -->
+        <section id="email-interface" class="hidden">
+            <div class="max-w-4xl mx-auto bg-white bg-opacity-90 rounded-2xl shadow-2xl p-8">
+                <!-- Main Menu -->
+                <div id="main-menu" class="space-y-4">
+                    <h2 class="text-2xl font-bold text-center text-purple-800">Main Menu</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <button class="gradient-bg text-white p-4 rounded-lg" data-action="compose">
+                            <i class="bi bi-pencil-fill mb-2 text-2xl"></i>
+                            <div>Send Email</div>
+                        </button>
+                        <button class="gradient-bg text-white p-4 rounded-lg" data-action="read">
+                            <i class="bi bi-envelope-fill mb-2 text-2xl"></i>
+                            <div>Read Emails</div>
+                        </button>
+                        <button class="gradient-bg text-white p-4 rounded-lg" data-action="trash">
+                            <i class="bi bi-trash-fill mb-2 text-2xl"></i>
+                            <div>Trash Box</div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Compose Email -->
+                <div id="compose-section" class="hidden">
+                    <form id="compose-form" class="space-y-4">
+                        <h3 class="text-xl font-bold text-purple-800">Compose Email</h3>
+                        <div>
+                            <label>To:</label>
+                            <input type="email" id="recipient" class="w-full p-2 border rounded" readonly>
+                        </div>
+                        <div>
+                            <label>Subject:</label>
+                            <input type="text" id="subject" class="w-full p-2 border rounded" readonly>
+                        </div>
+                        <div>
+                            <label>Message:</label>
+                            <textarea id="message" class="w-full p-2 border rounded h-32" readonly></textarea>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Read Emails -->
+                <div id="read-section" class="hidden">
+                    <h3 class="text-xl font-bold text-purple-800">Inbox</h3>
+                    <div id="email-list" class="space-y-2">
+                        <!-- Emails will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Trash Box -->
+                <div id="trash-section" class="hidden">
+                    <h3 class="text-xl font-bold text-purple-800">Trash</h3>
+                    <div id="trash-list" class="space-y-2">
+                        <!-- Deleted emails will be shown here -->
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        let recognition;
+        let synthesis;
+        let isListening = false;
+        let currentState = 'initial';
+        let currentSection = 'login';
+        let awaitingResponse = false;
+        let emailCredentials = {
+            email: '',
+            password: ''
+        };
+
+        // Initialize voice control
+        function initializeVoiceControl() {
+            if (!('webkitSpeechRecognition' in window)) {
+                alert('Voice recognition is not supported in this browser. Please use Chrome.');
+                return;
+            }
+
+            recognition = new webkitSpeechRecognition();
+            synthesis = window.speechSynthesis;
+
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onresult = handleVoiceCommand;
+            recognition.onend = () => {
+                if (isListening) recognition.start();
+            };
+            recognition.onerror = handleError;
+
+            document.getElementById('startButton').addEventListener('click', toggleVoiceAssistant);
+        }
+
+        async function speak(text) {
+            return new Promise((resolve) => {
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.onend = resolve;
+                synthesis.speak(utterance);
+            });
+        }
+
+        async function handleVoiceCommand(event) {
+            const command = event.results[event.results.length - 1][0].transcript.toLowerCase();
+            showStatus(`Command received: ${command}`);
+
+            if (command.includes('stop listening')) {
+                toggleVoiceAssistant();
+                return;
+            }
+
+            switch (currentState) {
+                case 'initial':
+                    await handleInitialState(command);
+                    break;
+                case 'awaitingEmail':
+                    await handleEmailInput(command);
+                    break;
+                case 'awaitingPassword':
+                    await handlePasswordInput(command);
+                    break;
+                case 'mainMenu':
+                    await handleMainMenuCommands(command);
+                    break;
+                case 'compose':
+                    await handleComposeCommands(command);
+                    break;
+            }
+        }
+
+        async function handleInitialState(command) {
+            if (command.includes('start') || command.includes('begin')) {
+                currentState = 'awaitingEmail';
+                await speak('Please say your email address.');
+            }
+        }
+
+        async function handleEmailInput(command) {
+            const email = extractEmail(command);
+            if (email) {
+                emailCredentials.email = email;
+                document.getElementById('emailInput').value = email;
+                currentState = 'awaitingPassword';
+                await speak('Email recorded. Please say your password.');
+            } else {
+                await speak('I did not catch a valid email address. Please try again.');
+            }
+        }
+
+        async function handlePasswordInput(command) {
+            emailCredentials.password = command.replace(/\s/g, '');
+            document.getElementById('passwordInput').value = '********';
+            await authenticateUser();
+        }
+
+        async function authenticateUser() {
+            try {
+                await speak('Attempting to authenticate your credentials.');
+                // Here you would typically make an API call to verify credentials
+                // For demo purposes, we're simulating success
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                currentState = 'mainMenu';
+                document.getElementById('login-section').classList.add('hidden');
+                document.getElementById('email-interface').classList.remove('hidden');
+                await speak('Login successful. You are now in the main menu. You can say "send email", "read emails", or "open trash".');
+            } catch (error) {
+                await speak('Authentication failed. Please try again.');
+                currentState = 'initial';
+            }
+        }
+
+        async function handleMainMenuCommands(command) {
+            if (command.includes('send email') || command.includes('compose')) {
+                currentState = 'compose';
+                showSection('compose-section');
+                await speak('Compose email mode. Please say the recipient\'s email address.');
+            } else if (command.includes('read emails')) {
+                showSection('read-section');
+                await speak('Opening inbox. I will read your emails.');
+            } else if (command.includes('open trash')) {
+                showSection('trash-section');
+                await speak('Opening trash box.');
+            }
+        }
+
+        async function handleComposeCommands(command) {
+            if (awaitingResponse) {
+                if (currentSection === 'recipient') {
+                    const email = extractEmail(command);
+                    if (email) {
+                        document.getElementById('recipient').value = email;
+                        currentSection = 'subject';
+                        awaitingResponse = false;
+                        await speak('Recipient added. Please say the subject of your email.');
+                    } else {
+                        await speak('I did not catch a valid email address. Please try again.');
+                    }
+                }
+                // Add more handling for subject and message
+            }
+        }
+
+        function showStatus(message) {
+            const statusBar = document.getElementById('status-bar');
+            const statusMessage = document.getElementById('status-message');
+            statusMessage.textContent = message;
+            statusBar.classList.remove('hidden');
+            setTimeout(() => statusBar.classList.add('hidden'), 3000);
+        }
+
+        function toggleVoiceAssistant() {
+            const button = document.getElementById('startButton');
+            const feedback = document.getElementById('visualFeedback');
+            
+            if (!isListening) {
+                recognition.start();
+                isListening = true;
+                button.classList.add('listening');
+                feedback.classList.add('listening-feedback');
+                speak('Voice assistant activated. Say "start" to begin.');
+            } else {
+                recognition.stop();
+                isListening = false;
+                button.classList.remove('listening');
+                feedback.classList.remove('listening-feedback');
+                speak('Voice assistant deactivated.');
+            }
+        }
+
+        function showSection(sectionId) {
+            document.querySelectorAll('section > div').forEach(section => {
+                section.classList.add('hidden');
+            });
+            document.getElementById(sectionId).classList.remove('hidden');
+        }
+
+        function extractEmail(text) {
+            const matches = text.match(/[\w-\.]+@([\w-]+\.)+[\w-]{2,4}/g);
+            return matches ? matches[0] : null;
+        }
+
+        document.addEventListener('DOMContentLoaded', initializeVoiceControl);
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
